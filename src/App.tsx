@@ -15,7 +15,7 @@ import {
   Users,
   UserPlus,
   Droplets,
-  UserRound,
+  User,
   CalendarDays,
   Building2,
   AlertCircle,
