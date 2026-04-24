@@ -26,7 +26,6 @@ const CONFIG = {
   mainSheetName: "stat2026",
   newBelieverSheetName: "ผู้เชื่อใหม่ 2026",
 };
-
 const KPI_COLORS = {
   hall: "#69B7FF",
   outside: "#F4D35E",
