@@ -714,7 +714,7 @@ export default function App() {
           <KpiCard
             title="ยอดรวม Visitor"
             value={summary.visitor}
-            icon={UserRound}
+            icon={User}
             background="#cffafe"
           />
           <KpiCard
