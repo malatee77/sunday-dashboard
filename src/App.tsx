@@ -11,21 +11,22 @@ import {
   LabelList,
   Cell,
 } from "recharts";
-import {
-  Users,
-  UserPlus,
-  Droplets,
-  User,
-  CalendarDays,
-  Building2,
-  AlertCircle,
-} from "lucide-react";
+import { Users, UserPlus, Droplets, User, CalendarDays, Building2, AlertCircle } from "lucide-react";
 
 const CONFIG = {
-  spreadsheetId: "1RjyW06vy1DoIQ9bvHbhhlltHTo6S03iNh71et4QB4hQ",
-  mainSheetName: "stat2026",
-  newBelieverSheetName: "ผู้เชื่อใหม่ 2026",
+  spreadsheetId:
+    import.meta.env.VITE_GOOGLE_SHEETS_ID ||
+    "1RjyW06vy1DoIQ9bvHbhhlltHTo6S03iNh71et4QB4hQ",
+  mainSheetName:
+    import.meta.env.VITE_MAIN_SHEET_NAME ||
+    "stat2026",
+  newBelieverSheetName:
+    import.meta.env.VITE_NEW_BELIEVER_SHEET_NAME ||
+    "ผู้เชื่อใหม่ 2026",
+  refreshIntervalMs:
+    Number(import.meta.env.VITE_REFRESH_INTERVAL_MS || 60000),
 };
+
 const KPI_COLORS = {
   hall: "#69B7FF",
   outside: "#F4D35E",
@@ -85,9 +86,7 @@ function pad2(value) {
 
 function toDateKey(date) {
   if (!date) return "";
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(
-    date.getDate()
-  )}`;
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
 function parseThaiDate(value, fallbackYear = 2026) {
@@ -149,9 +148,7 @@ function findColumnIndex(headers, candidates) {
 
   for (const candidate of candidates) {
     const target = normalizeKey(candidate);
-    const partial = normalized.findIndex(
-      (h) => h.includes(target) || target.includes(h)
-    );
+    const partial = normalized.findIndex((h) => h.includes(target) || target.includes(h));
     if (partial >= 0) return partial;
   }
 
@@ -159,12 +156,26 @@ function findColumnIndex(headers, candidates) {
 }
 
 async function fetchGoogleSheet(sheetName) {
-  const url = `https://docs.google.com/spreadsheets/d/${
-    CONFIG.spreadsheetId
-  }/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tqx=out:json`;
-  const res = await fetch(url);
+  const url = `https://docs.google.com/spreadsheets/d/${CONFIG.spreadsheetId}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tqx=out:json`;
+  const res = await fetch(url, { cache: "no-store" });
+
+  if (!res.ok) {
+    throw new Error(`ไม่สามารถโหลดข้อมูลชีท ${sheetName} ได้`);
+  }
+
   const text = await res.text();
-  const json = JSON.parse(text.substring(47, text.length - 2));
+  const startIndex = text.indexOf("{");
+  const endIndex = text.lastIndexOf("}");
+
+  if (startIndex < 0 || endIndex < 0) {
+    throw new Error(`รูปแบบข้อมูลจากชีท ${sheetName} ไม่ถูกต้อง`);
+  }
+
+  const json = JSON.parse(text.slice(startIndex, endIndex + 1));
+
+  if (!json?.table?.cols || !json?.table?.rows) {
+    throw new Error(`ไม่พบข้อมูลในชีท ${sheetName}`);
+  }
 
   const cols = json.table.cols.map((c) => c.label || c.id || "");
   const rows = json.table.rows.map((row) =>
@@ -185,35 +196,19 @@ function parseMainStats(table) {
   const monthIdx = findColumnIndex(headers, ["เดือน", "month"]);
   const hallIdx = findColumnIndex(headers, ["hall"]);
   const outsideIdx = findColumnIndex(headers, ["outside"]);
-  const ctVisitorIdx = findColumnIndex(headers, [
-    "ct-visitor",
-    "ct visitor",
-    "ctvisitor",
-  ]);
+  const ctVisitorIdx = findColumnIndex(headers, ["ct-visitor", "ct visitor", "ctvisitor"]);
   const visitorIdx = findColumnIndex(headers, ["visitor"]);
-  const newBelieverIdx = findColumnIndex(headers, [
-    "new believer",
-    "new beliver",
-    "new b",
-  ]);
+  const newBelieverIdx = findColumnIndex(headers, ["new believer", "new beliver", "new b"]);
   const baptismIdx = findColumnIndex(headers, ["baptism"]);
   const totalHallIdx = findColumnIndex(headers, ["รวม hall"]);
   const toddlerIdx = findColumnIndex(headers, ["toddler"]);
   const kindergartenIdx = findColumnIndex(headers, ["อนุบาล"]);
   const primaryIdx = findColumnIndex(headers, ["ป.ต้น"]);
   const juniorIdx = findColumnIndex(headers, ["ป.ปลาย"]);
-  const nonSpecificIdx = findColumnIndex(headers, [
-    "non specific",
-    "nonspecific",
-    "non speaker",
-  ]);
+  const nonSpecificIdx = findColumnIndex(headers, ["non specific", "nonspecific", "non speaker"]);
   const teacherIdx = findColumnIndex(headers, ["teacher"]);
   const kidsTotalIdx = findColumnIndex(headers, ["รวม คจ.เด็ก"]);
-  const hallPlusKidsIdx = findColumnIndex(headers, [
-    "รวม hall + คจ.เด็ก",
-    "รวม hall + คจเด็ก",
-    "hall + คจ.เด็ก",
-  ]);
+  const hallPlusKidsIdx = findColumnIndex(headers, ["รวม hall + คจ.เด็ก", "รวม hall + คจเด็ก", "hall + คจ.เด็ก"]);
 
   let currentMonth = "";
   const data = [];
@@ -225,14 +220,7 @@ function parseMainStats(table) {
     if (rawMonth) currentMonth = rawMonth;
     const date = parseThaiDate(rawDate);
 
-    const hasMeaningfulData = [
-      hallIdx,
-      ctVisitorIdx,
-      visitorIdx,
-      newBelieverIdx,
-      baptismIdx,
-      hallPlusKidsIdx,
-    ]
+    const hasMeaningfulData = [hallIdx, ctVisitorIdx, visitorIdx, newBelieverIdx, baptismIdx, hallPlusKidsIdx]
       .filter((idx) => idx >= 0)
       .some((idx) => toNumber(row[idx]) > 0);
 
@@ -240,8 +228,7 @@ function parseMainStats(table) {
 
     const hall = toNumber(row[hallIdx]);
     const outside = toNumber(row[outsideIdx]);
-    const totalHall =
-      totalHallIdx >= 0 ? toNumber(row[totalHallIdx]) : hall + outside;
+    const totalHall = totalHallIdx >= 0 ? toNumber(row[totalHallIdx]) : hall + outside;
     const kidsTotal = kidsTotalIdx >= 0 ? toNumber(row[kidsTotalIdx]) : 0;
 
     data.push({
@@ -262,10 +249,7 @@ function parseMainStats(table) {
       nonSpecific: toNumber(row[nonSpecificIdx]),
       teacher: toNumber(row[teacherIdx]),
       kidsTotal,
-      hallPlusKids:
-        hallPlusKidsIdx >= 0
-          ? toNumber(row[hallPlusKidsIdx])
-          : totalHall + kidsTotal,
+      hallPlusKids: hallPlusKidsIdx >= 0 ? toNumber(row[hallPlusKidsIdx]) : totalHall + kidsTotal,
     });
   });
 
@@ -276,19 +260,8 @@ function parseGroupCounts(newBelieverTable, selectedDateKey) {
   if (!newBelieverTable?.cols?.length) return [];
 
   const headers = newBelieverTable.cols;
-  const groupIdx = findColumnIndex(headers, [
-    "กลุ่ม",
-    "group",
-    "care",
-    "cell group",
-    "care group",
-  ]);
-  const dateIdx = findColumnIndex(headers, [
-    "วันที่",
-    "date",
-    "decision date",
-    "รับเชื่อ",
-  ]);
+  const groupIdx = findColumnIndex(headers, ["กลุ่ม", "group", "care", "cell group", "care group"]);
+  const dateIdx = findColumnIndex(headers, ["วันที่", "date", "decision date", "รับเชื่อ"]);
   const nameIdx = findColumnIndex(headers, ["ชื่อ", "name", "nickname"]);
   const statusIdx = findColumnIndex(headers, ["status", "สถานะ"]);
 
@@ -320,29 +293,25 @@ function parseGroupCounts(newBelieverTable, selectedDateKey) {
 
 function runDataParsingSelfTests() {
   const sampleDate = parseThaiDate("4/1/2026");
-  console.assert(
-    toDateKey(sampleDate) === "2026-01-04",
-    "Expected full date parsing to preserve Gregorian year"
-  );
-  console.assert(
-    formatShortDate(new Date(2026, 0, 4)).includes("26"),
-    "Expected short date to show 2-digit Gregorian year"
-  );
-  console.assert(
-    toNumber("1,234") === 1234,
-    "Expected comma-separated numbers to parse correctly"
-  );
-  console.assert(
-    findColumnIndex(["New Beliver", "Visitor"], ["new believer"]) === 0,
-    "Expected typo-tolerant column match"
-  );
-  console.assert(
-    parseThaiDate("4/1")?.getFullYear() === 2026,
-    "Expected short date to use fallback year"
-  );
+  console.assert(toDateKey(sampleDate) === "2026-01-04", "Expected full date parsing to preserve Gregorian year");
+  console.assert(formatShortDate(new Date(2026, 0, 4)).includes("26"), "Expected short date to show 2-digit Gregorian year");
+  console.assert(toNumber("1,234") === 1234, "Expected comma-separated numbers to parse correctly");
+  console.assert(findColumnIndex(["New Beliver", "Visitor"], ["new believer"]) === 0, "Expected typo-tolerant column match");
+  console.assert(parseThaiDate("4/1")?.getFullYear() === 2026, "Expected short date to use fallback year");
 }
 
 runDataParsingSelfTests();
+
+function formatDateTime(date) {
+  if (!date) return "-";
+  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
 function Panel({ children, className = "", style }) {
   return (
@@ -360,28 +329,10 @@ function KpiCard({ title, value, icon: Icon, background }) {
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <Panel style={{ background }}>
         <div style={{ padding: 20 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              gap: 16,
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 500, color: "#475569" }}>
-                {title}
-              </div>
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: 32,
-                  fontWeight: 700,
-                  color: "#0f172a",
-                }}
-              >
-                {formatNumber(value)}
-              </div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: "#475569" }}>{title}</div>
+              <div style={{ marginTop: 8, fontSize: 32, fontWeight: 700, color: "#0f172a" }}>{formatNumber(value)}</div>
             </div>
             <div
               style={{
@@ -427,7 +378,7 @@ function AlertBox({ children }) {
         border: "1px solid #fecaca",
         background: "#fef2f2",
         color: "#991b1b",
-        padding: isMobile ? 10 : 16,
+        padding: 16,
         display: "flex",
         gap: 10,
         alignItems: "flex-start",
@@ -439,10 +390,35 @@ function AlertBox({ children }) {
   );
 }
 
+const tableHeaderCellStyle = {
+  padding: "12px 16px",
+  textAlign: "center",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
+  verticalAlign: "middle",
+};
+
+const tableCellStyle = {
+  padding: "12px 16px",
+  textAlign: "center",
+  whiteSpace: "nowrap",
+  verticalAlign: "middle",
+};
+
+const tableDateCellStyle = {
+  ...tableCellStyle,
+  textAlign: "left",
+  minWidth: 130,
+};
+
+const tableTotalCellStyle = {
+  ...tableCellStyle,
+  fontWeight: 700,
+};
+
 export default function App() {
-  const [windowWidth, setWindowWidth] = useState(
-    typeof window !== "undefined" ? window.innerWidth : 1280
-  );
+  const [lastUpdated, setLastUpdated] = useState(null);
+    const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1280);
   const isMobile = windowWidth < 768;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -462,37 +438,46 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function load() {
       try {
-        setLoading(true);
-        setError("");
+        if (isMounted) {
+          setLoading(true);
+          setError("");
+        }
 
         const [mainTable, believerTable] = await Promise.all([
           fetchGoogleSheet(CONFIG.mainSheetName),
-          fetchGoogleSheet(CONFIG.newBelieverSheetName).catch(() => ({
-            cols: [],
-            rows: [],
-          })),
+          fetchGoogleSheet(CONFIG.newBelieverSheetName).catch(() => ({ cols: [], rows: [] })),
         ]);
+
+        if (!isMounted) return;
 
         setWeeklyStats(parseMainStats(mainTable));
         setGroupTable(believerTable);
+        setLastUpdated(new Date());
       } catch (err) {
+        if (!isMounted) return;
         setError(err?.message || "โหลดข้อมูลไม่สำเร็จ");
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     load();
+
+    const intervalId = window.setInterval(load, CONFIG.refreshIntervalMs);
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const dateOptions = useMemo(
-    () =>
-      weeklyStats.map((item) => ({
-        value: item.dateKey,
-        label: formatDate(item.date),
-      })),
+    () => weeklyStats.map((item) => ({ value: item.dateKey, label: formatDate(item.date) })),
     [weeklyStats]
   );
 
@@ -530,32 +515,20 @@ export default function App() {
 
   const HEAD_COUNT_PAGE_SIZE = isMobile ? 4 : 5;
 
-  const maxHeadCountPage = Math.max(
-    0,
-    Math.ceil(headCountChartData.length / HEAD_COUNT_PAGE_SIZE) - 1
-  );
+  const maxHeadCountPage = Math.max(0, Math.ceil(headCountChartData.length / HEAD_COUNT_PAGE_SIZE) - 1);
 
   const visibleHeadCountChartData = useMemo(() => {
     const safePage = Math.min(headCountPage, maxHeadCountPage);
     const start = safePage * HEAD_COUNT_PAGE_SIZE;
     return headCountChartData.slice(start, start + HEAD_COUNT_PAGE_SIZE);
-  }, [
-    headCountChartData,
-    headCountPage,
-    maxHeadCountPage,
-    HEAD_COUNT_PAGE_SIZE,
-  ]);
+  }, [headCountChartData, headCountPage, maxHeadCountPage, HEAD_COUNT_PAGE_SIZE]);
 
   const currentHeadCountMonthLabel = useMemo(() => {
     if (!visibleHeadCountChartData.length) return "";
     const firstMonth = visibleHeadCountChartData[0]?.month || "";
-    const allSameMonth = visibleHeadCountChartData.every(
-      (item) => item.month === firstMonth
-    );
+    const allSameMonth = visibleHeadCountChartData.every((item) => item.month === firstMonth);
     if (allSameMonth) return firstMonth;
-    const lastMonth =
-      visibleHeadCountChartData[visibleHeadCountChartData.length - 1]?.month ||
-      "";
+    const lastMonth = visibleHeadCountChartData[visibleHeadCountChartData.length - 1]?.month || "";
     return `${firstMonth} - ${lastMonth}`;
   }, [visibleHeadCountChartData]);
 
@@ -563,10 +536,7 @@ export default function App() {
     setHeadCountPage(Math.min(headCountPage, maxHeadCountPage));
   }, [maxHeadCountPage]);
 
-  const groupChartData = useMemo(
-    () => parseGroupCounts(groupTable, selectedDateKey),
-    [groupTable, selectedDateKey]
-  );
+  const groupChartData = useMemo(() => parseGroupCounts(groupTable, selectedDateKey), [groupTable, selectedDateKey]);
 
   const adultRows = useMemo(
     () =>
@@ -603,23 +573,22 @@ export default function App() {
         minHeight: "100vh",
         background: "#f1f5f9",
         padding: isMobile ? 10 : 16,
-        fontFamily:
-          'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      <div
-        style={{
-          maxWidth: 1280,
-          margin: "0 auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: 24,
-        }}
-      >
+      <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
+        <style>{`
+          body { margin: 0; }
+          * { box-sizing: border-box; }
+          button:disabled { opacity: 0.7; }
+          @media (max-width: 767px) {
+            table { min-width: 760px; }
+          }
+        `}</style>
         <Panel>
           <div
             style={{
-              padding: 24,
+              padding: isMobile ? 16 : 24,
               display: "flex",
               gap: 16,
               justifyContent: "space-between",
@@ -644,25 +613,12 @@ export default function App() {
                 Sunday Stat Dashboard
               </div>
               <p style={{ marginTop: 12, fontSize: 14, color: "#64748b" }}>
-                ดึงข้อมูลแบบเรียลไทม์จาก Google Sheets
-                และสามารถเลือกดูรายวันหรือรวมทั้งหมดได้
+                ดึงข้อมูลแบบเรียลไทม์จาก Google Sheets และสามารถเลือกดูรายวันหรือรวมทั้งหมดได้
               </p>
             </div>
 
-            <div
-              style={{
-                width: "100%",
-                maxWidth: 280,
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-              }}
-            >
-              <label
-                style={{ fontSize: 14, fontWeight: 500, color: "#475569" }}
-              >
-                เลือกวันที่
-              </label>
+            <div style={{ width: "100%", maxWidth: 280, display: "flex", flexDirection: "column", gap: 8 }}>
+              <label style={{ fontSize: 14, fontWeight: 500, color: "#475569" }}>เลือกวันที่</label>
               <select
                 value={selectedDateKey}
                 onChange={(e) => setSelectedDateKey(e.target.value)}
@@ -691,10 +647,7 @@ export default function App() {
 
         {error ? (
           <AlertBox>
-            โหลดข้อมูลไม่สำเร็จ: {error} — ตรวจสอบว่า Google Sheet
-            เปิดสิทธิ์ให้เข้าถึงได้ และชื่อชีท{" "}
-            <strong>{CONFIG.mainSheetName}</strong> และ{" "}
-            <strong>{CONFIG.newBelieverSheetName}</strong> ถูกต้อง
+            โหลดข้อมูลไม่สำเร็จ: {error} — ตรวจสอบว่า Google Sheet เปิดสิทธิ์ให้เข้าถึงได้ และชื่อชีท <strong>{CONFIG.mainSheetName}</strong> และ <strong>{CONFIG.newBelieverSheetName}</strong> ถูกต้อง
           </AlertBox>
         ) : null}
 
@@ -705,38 +658,16 @@ export default function App() {
             gap: 16,
           }}
         >
-          <KpiCard
-            title="ยอดรวม CT Visitor"
-            value={summary.ctVisitor}
-            icon={Users}
-            background="#ffedd5"
-          />
-          <KpiCard
-            title="ยอดรวม Visitor"
-            value={summary.visitor}
-            icon={User}
-            background="#cffafe"
-          />
-          <KpiCard
-            title="ยอดรวม New Believer"
-            value={summary.newBeliever}
-            icon={UserPlus}
-            background="#fae8ff"
-          />
-          <KpiCard
-            title="ยอดรวม Baptism"
-            value={summary.baptism}
-            icon={Droplets}
-            background="#ccfbf1"
-          />
+          <KpiCard title="ยอดรวม CT Visitor" value={summary.ctVisitor} icon={Users} background="#ffedd5" />
+          <KpiCard title="ยอดรวม Visitor" value={summary.visitor} icon={User} background="#cffafe" />
+          <KpiCard title="ยอดรวม New Believer" value={summary.newBeliever} icon={UserPlus} background="#fae8ff" />
+          <KpiCard title="ยอดรวม Baptism" value={summary.baptism} icon={Droplets} background="#ccfbf1" />
         </div>
 
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: isMobile
-              ? "1fr"
-              : "minmax(0, 1.05fr) minmax(0, 0.95fr)",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.05fr) minmax(0, 0.95fr)",
             gap: 24,
           }}
         >
@@ -751,35 +682,15 @@ export default function App() {
                   flexWrap: "wrap",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    fontSize: 18,
-                    fontWeight: 700,
-                    color: "#1e293b",
-                  }}
-                >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 18, fontWeight: 700, color: "#1e293b" }}>
                   <Building2 size={20} />
                   Head Count: รวม Hall + คจ.เด็ก ต่อสัปดาห์
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {currentHeadCountMonthLabel ? (
-                    <BadgePill>{currentHeadCountMonthLabel}</BadgePill>
-                  ) : null}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {currentHeadCountMonthLabel ? <BadgePill>{currentHeadCountMonthLabel}</BadgePill> : null}
                   <button
                     type="button"
-                    onClick={() =>
-                      setHeadCountPage((prev) => Math.max(0, prev - 1))
-                    }
+                    onClick={() => setHeadCountPage((prev) => Math.max(0, prev - 1))}
                     disabled={headCountPage === 0}
                     style={{
                       border: "1px solid #cbd5e1",
@@ -795,23 +706,15 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      setHeadCountPage((prev) =>
-                        Math.min(maxHeadCountPage, prev + 1)
-                      )
-                    }
+                    onClick={() => setHeadCountPage((prev) => Math.min(maxHeadCountPage, prev + 1))}
                     disabled={headCountPage >= maxHeadCountPage}
                     style={{
                       border: "1px solid #cbd5e1",
-                      background:
-                        headCountPage >= maxHeadCountPage ? "#e2e8f0" : "white",
+                      background: headCountPage >= maxHeadCountPage ? "#e2e8f0" : "white",
                       color: "#334155",
                       borderRadius: 10,
                       padding: "6px 10px",
-                      cursor:
-                        headCountPage >= maxHeadCountPage
-                          ? "not-allowed"
-                          : "pointer",
+                      cursor: headCountPage >= maxHeadCountPage ? "not-allowed" : "pointer",
                       fontWeight: 600,
                     }}
                   >
@@ -820,54 +723,20 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <div
-              style={{
-                height: isMobile ? 300 : 360,
-                padding: isMobile ? "8px 12px 16px" : "8px 24px 24px",
-              }}
-            >
+            <div style={{ height: isMobile ? 300 : 360, padding: isMobile ? "8px 12px 16px" : "8px 24px 24px" }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={visibleHeadCountChartData}
-                  margin={
-                    isMobile
-                      ? { top: 16, right: 8, left: -18, bottom: 16 }
-                      : { top: 24, right: 18, left: 4, bottom: 8 }
-                  }
-                >
+                <BarChart data={visibleHeadCountChartData} margin={isMobile ? { top: 16, right: 8, left: -18, bottom: 16 } : { top: 24, right: 18, left: 4, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: isMobile ? 11 : 12 }}
-                    angle={0}
-                    textAnchor="middle"
-                    height={isMobile ? 36 : 30}
-                    interval={0}
-                  />
-                  <YAxis
-                    tick={{ fontSize: isMobile ? 10 : 12 }}
-                    width={isMobile ? 28 : 40}
-                  />
+                  <XAxis dataKey="label" tick={{ fontSize: isMobile ? 11 : 12 }} angle={0} textAnchor="middle" height={isMobile ? 36 : 30} interval={0} />
+                  <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} width={isMobile ? 28 : 40} />
                   <Tooltip
                     formatter={(value) => [formatNumber(value), "รวมคน"]}
                     labelFormatter={(label, payload) =>
-                      payload?.[0]?.payload?.month
-                        ? `${label} • ${payload[0].payload.month}`
-                        : label
+                      payload?.[0]?.payload?.month ? `${label} • ${payload[0].payload.month}` : label
                     }
                   />
-                  <Bar
-                    dataKey="total"
-                    name="Hall + คจ.เด็ก"
-                    fill={KPI_COLORS.visitor}
-                    radius={[10, 10, 0, 0]}
-                  >
-                    <LabelList
-                      dataKey="total"
-                      position="top"
-                      formatter={(value) => formatNumber(value)}
-                      className="fill-sky-700"
-                    />
+                  <Bar dataKey="total" name="Hall + คจ.เด็ก" fill={KPI_COLORS.visitor} radius={[10, 10, 0, 0]}>
+                    <LabelList dataKey="total" position="top" formatter={(value) => formatNumber(value)} className="fill-sky-700" />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -875,70 +744,22 @@ export default function App() {
           </Panel>
 
           <Panel>
-            <div
-              style={{
-                padding: isMobile ? 16 : 24,
-                paddingBottom: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>
-                จำนวนผู้เชื่อใหม่ในแต่ละกลุ่ม
-              </div>
-              <BadgePill>
-                {selectedDateKey === "all" ? "รวมทั้งหมด" : "ตามวันที่เลือก"}
-              </BadgePill>
+            <div style={{ padding: isMobile ? 16 : 24, paddingBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>จำนวนผู้เชื่อใหม่ในแต่ละกลุ่ม</div>
+              <BadgePill>{selectedDateKey === "all" ? "รวมทั้งหมด" : "ตามวันที่เลือก"}</BadgePill>
             </div>
-            <div
-              style={{
-                height: isMobile ? 300 : 360,
-                padding: isMobile ? "8px 12px 16px" : "8px 24px 24px",
-              }}
-            >
+            <div style={{ height: isMobile ? 300 : 360, padding: isMobile ? "8px 12px 16px" : "8px 24px 24px" }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={groupChartData}
-                  layout="vertical"
-                  margin={
-                    isMobile
-                      ? { top: 8, right: 24, left: 0, bottom: 8 }
-                      : { top: 8, right: 28, left: 28, bottom: 8 }
-                  }
-                >
+                <BarChart data={groupChartData} layout="vertical" margin={isMobile ? { top: 8, right: 24, left: 0, bottom: 8 } : { top: 8, right: 28, left: 28, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: isMobile ? 10 : 12 }}
-                    allowDecimals={false}
-                  />
-                  <YAxis
-                    dataKey="group"
-                    type="category"
-                    width={isMobile ? 88 : 150}
-                    tick={{ fontSize: isMobile ? 10 : 12 }}
-                  />
+                  <XAxis type="number" tick={{ fontSize: isMobile ? 10 : 12 }} allowDecimals={false} />
+                  <YAxis dataKey="group" type="category" width={isMobile ? 88 : 150} tick={{ fontSize: isMobile ? 10 : 12 }} />
                   <Tooltip formatter={(value) => [formatNumber(value), "คน"]} />
-                  <Bar
-                    dataKey="total"
-                    name="New Believer"
-                    radius={[0, 10, 10, 0]}
-                  >
+                  <Bar dataKey="total" name="New Believer" radius={[0, 10, 10, 0]}>
                     {groupChartData.map((entry, index) => (
-                      <Cell
-                        key={`${entry.group}-${index}`}
-                        fill={GROUP_BAR_COLORS[index % GROUP_BAR_COLORS.length]}
-                      />
+                      <Cell key={`${entry.group}-${index}`} fill={GROUP_BAR_COLORS[index % GROUP_BAR_COLORS.length]} />
                     ))}
-                    <LabelList
-                      dataKey="total"
-                      position="right"
-                      formatter={(value) => formatNumber(value)}
-                      className="fill-amber-700"
-                    />
+                    <LabelList dataKey="total" position="right" formatter={(value) => formatNumber(value)} className="fill-amber-700" />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -949,52 +770,21 @@ export default function App() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: isMobile
-              ? "1fr"
-              : "repeat(auto-fit, minmax(420px, 1fr))",
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(420px, 1fr))",
             gap: 24,
           }}
         >
           <Panel>
             <div style={{ padding: isMobile ? 16 : 24, paddingBottom: 16 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>
-                คจ.ผู้ใหญ่ รายสัปดาห์
-              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>คจ.ผู้ใหญ่ รายสัปดาห์</div>
             </div>
             <div style={{ padding: isMobile ? "0 12px 16px" : "0 24px 24px" }}>
-              <div
-                style={{
-                  overflowX: "auto",
-                  borderRadius: 16,
-                  border: "1px solid #e2e8f0",
-                }}
-              >
-                <table
-                  style={{
-                    minWidth: "100%",
-                    fontSize: 14,
-                    borderCollapse: "collapse",
-                  }}
-                >
+              <div style={{ overflowX: "auto", borderRadius: 16, border: "1px solid #e2e8f0" }}>
+                <table style={{ minWidth: 760, width: "100%", fontSize: 14, borderCollapse: "collapse", tableLayout: "auto" }}>
                   <thead style={{ background: "#fb923c", color: "#020617" }}>
                     <tr>
-                      {[
-                        "วันที่",
-                        "Hall",
-                        "Outside",
-                        "CT-Visitor",
-                        "Visitor",
-                        "New Believer",
-                        "Baptism",
-                      ].map((h) => (
-                        <th
-                          key={h}
-                          style={{
-                            padding: "12px 16px",
-                            textAlign: "left",
-                            fontWeight: 600,
-                          }}
-                        >
+                      {["วันที่", "Hall", "Outside", "CT-Visitor", "Visitor", "New Believer", "Baptism"].map((h) => (
+                        <th key={h} style={tableHeaderCellStyle}>
                           {h}
                         </th>
                       ))}
@@ -1002,36 +792,19 @@ export default function App() {
                   </thead>
                   <tbody>
                     {adultRows.map((row) => (
-                      <tr
-                        key={`${row.date}-${row.hall}-${row.ctVisitor}`}
-                        style={{
-                          borderTop: "1px solid #f1f5f9",
-                          background: "white",
-                        }}
-                      >
-                        <td style={{ padding: "12px 16px" }}>{row.date}</td>
-                        <td style={{ padding: "12px 16px" }}>{row.hall}</td>
-                        <td style={{ padding: "12px 16px" }}>{row.outside}</td>
-                        <td style={{ padding: "12px 16px" }}>
-                          {row.ctVisitor}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>{row.visitor}</td>
-                        <td style={{ padding: "12px 16px" }}>
-                          {row.newBeliever}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>{row.baptism}</td>
+                      <tr key={`${row.date}-${row.hall}-${row.ctVisitor}`} style={{ borderTop: "1px solid #f1f5f9", background: "white" }}>
+                        <td style={tableDateCellStyle}>{row.date}</td>
+                        <td style={tableCellStyle}>{row.hall}</td>
+                        <td style={tableCellStyle}>{row.outside}</td>
+                        <td style={tableCellStyle}>{row.ctVisitor}</td>
+                        <td style={tableCellStyle}>{row.visitor}</td>
+                        <td style={tableCellStyle}>{row.newBeliever}</td>
+                        <td style={tableCellStyle}>{row.baptism}</td>
                       </tr>
                     ))}
                     {!adultRows.length ? (
                       <tr>
-                        <td
-                          colSpan={7}
-                          style={{
-                            padding: "32px 16px",
-                            textAlign: "center",
-                            color: "#64748b",
-                          }}
-                        >
+                        <td colSpan={7} style={{ padding: "32px 16px", textAlign: "center", color: "#64748b" }}>
                           ไม่มีข้อมูล
                         </td>
                       </tr>
@@ -1044,45 +817,15 @@ export default function App() {
 
           <Panel>
             <div style={{ padding: isMobile ? 16 : 24, paddingBottom: 16 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>
-                คจ.เด็ก รายสัปดาห์
-              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>คจ.เด็ก รายสัปดาห์</div>
             </div>
             <div style={{ padding: isMobile ? "0 12px 16px" : "0 24px 24px" }}>
-              <div
-                style={{
-                  overflowX: "auto",
-                  borderRadius: 16,
-                  border: "1px solid #e2e8f0",
-                }}
-              >
-                <table
-                  style={{
-                    minWidth: "100%",
-                    fontSize: 14,
-                    borderCollapse: "collapse",
-                  }}
-                >
+              <div style={{ overflowX: "auto", borderRadius: 16, border: "1px solid #e2e8f0" }}>
+                <table style={{ minWidth: 760, width: "100%", fontSize: 14, borderCollapse: "collapse", tableLayout: "auto" }}>
                   <thead style={{ background: "#f472b6", color: "#020617" }}>
                     <tr>
-                      {[
-                        "วันที่",
-                        "Toddler",
-                        "อนุบาล",
-                        "ป.ต้น",
-                        "ป.ปลาย",
-                        "Non Specific",
-                        "Teacher",
-                        "รวม คจ.เด็ก",
-                      ].map((h) => (
-                        <th
-                          key={h}
-                          style={{
-                            padding: "12px 16px",
-                            textAlign: "left",
-                            fontWeight: 600,
-                          }}
-                        >
+                      {["วันที่", "Toddler", "อนุบาล", "ป.ต้น", "ป.ปลาย", "Non Specific", "Teacher", "รวม คจ.เด็ก"].map((h) => (
+                        <th key={h} style={tableHeaderCellStyle}>
                           {h}
                         </th>
                       ))}
@@ -1090,39 +833,20 @@ export default function App() {
                   </thead>
                   <tbody>
                     {kidsRows.map((row) => (
-                      <tr
-                        key={`${row.date}-${row.total}-${row.teacher}`}
-                        style={{
-                          borderTop: "1px solid #f1f5f9",
-                          background: "white",
-                        }}
-                      >
-                        <td style={{ padding: "12px 16px" }}>{row.date}</td>
-                        <td style={{ padding: "12px 16px" }}>{row.toddler}</td>
-                        <td style={{ padding: "12px 16px" }}>
-                          {row.kindergarten}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>{row.primary}</td>
-                        <td style={{ padding: "12px 16px" }}>{row.junior}</td>
-                        <td style={{ padding: "12px 16px" }}>
-                          {row.nonSpecific}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>{row.teacher}</td>
-                        <td style={{ padding: "12px 16px", fontWeight: 700 }}>
-                          {row.total}
-                        </td>
+                      <tr key={`${row.date}-${row.total}-${row.teacher}`} style={{ borderTop: "1px solid #f1f5f9", background: "white" }}>
+                        <td style={tableDateCellStyle}>{row.date}</td>
+                        <td style={tableCellStyle}>{row.toddler}</td>
+                        <td style={tableCellStyle}>{row.kindergarten}</td>
+                        <td style={tableCellStyle}>{row.primary}</td>
+                        <td style={tableCellStyle}>{row.junior}</td>
+                        <td style={tableCellStyle}>{row.nonSpecific}</td>
+                        <td style={tableCellStyle}>{row.teacher}</td>
+                        <td style={tableTotalCellStyle}>{row.total}</td>
                       </tr>
                     ))}
                     {!kidsRows.length ? (
                       <tr>
-                        <td
-                          colSpan={8}
-                          style={{
-                            padding: "32px 16px",
-                            textAlign: "center",
-                            color: "#64748b",
-                          }}
-                        >
+                        <td colSpan={8} style={{ padding: "32px 16px", textAlign: "center", color: "#64748b" }}>
                           ไม่มีข้อมูล
                         </td>
                       </tr>
@@ -1135,27 +859,18 @@ export default function App() {
         </div>
 
         <Panel>
-          <div
-            style={{
-              padding: isMobile ? 16 : 20,
-              fontSize: 14,
-              color: "#64748b",
-            }}
-          >
+          <div style={{ padding: isMobile ? 16 : 20, fontSize: 14, color: "#64748b" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
               <CalendarDays size={16} style={{ marginTop: 2, flexShrink: 0 }} />
               <div>
-                ระบบนี้ตั้งค่าให้แสดงผลทั้งหมดเป็นค่าเริ่มต้น และจะกรองทั้ง KPI,
-                ตาราง, และกราฟกลุ่มผู้เชื่อใหม่เมื่อเลือกวันที่ ส่วนกราฟ Head
-                Count แสดงครั้งละ 4-5 สัปดาห์
-                และใช้ปุ่มก่อนหน้า/ถัดไปเพื่อเลื่อนดูช่วงสัปดาห์อื่น ๆ ได้
+                ระบบนี้ตั้งค่าให้แสดงผลทั้งหมดเป็นค่าเริ่มต้น และจะกรองทั้ง KPI, ตาราง, และกราฟกลุ่มผู้เชื่อใหม่เมื่อเลือกวันที่ ส่วนกราฟ Head Count แสดงครั้งละ 4-5 สัปดาห์ และใช้ปุ่มก่อนหน้า/ถัดไปเพื่อเลื่อนดูช่วงสัปดาห์อื่น ๆ ได้
               </div>
             </div>
-            {loading ? (
-              <div style={{ marginTop: 12, fontWeight: 600, color: "#334155" }}>
-                กำลังโหลดข้อมูล...
-              </div>
-            ) : null}
+            <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 12, color: "#334155" }}>
+              {loading ? <div style={{ fontWeight: 600 }}>กำลังโหลดข้อมูล...</div> : null}
+              <div>อัปเดตล่าสุด: {formatDateTime(lastUpdated)}</div>
+              <div>รีเฟรชอัตโนมัติทุก {Math.round(CONFIG.refreshIntervalMs / 1000)} วินาที</div>
+            </div>
           </div>
         </Panel>
       </div>
